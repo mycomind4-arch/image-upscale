@@ -1,15 +1,13 @@
 import os
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageFilter
 
 
-def _pillow_fallback(image: Image.Image, scale: int) -> Image.Image:
-    size = (image.width * scale, image.height * scale)
-    out = image.resize(size, Image.Resampling.LANCZOS)
-    out = out.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
-    return out
+def _fallback(image, scale):
+    out = image.resize((image.width * scale, image.height * scale), Image.Resampling.LANCZOS)
+    return out.filter(ImageFilter.UnsharpMask(radius=1.2, percent=110, threshold=3))
 
 
-def _realesrgan(image: Image.Image, scale: int) -> Image.Image:
+def _realesrgan(image, scale):
     try:
         from realesrgan import RealESRGAN
         import torch
@@ -17,19 +15,38 @@ def _realesrgan(image: Image.Image, scale: int) -> Image.Image:
         model = RealESRGAN(device, scale=4)
         model.load_weights(os.getenv('REALESRGAN_WEIGHTS', 'weights/RealESRGAN_x4plus.pth'), download=True)
         out = model.predict(image)
-        if scale != 4:
-            out = out.resize((image.width * scale, image.height * scale), Image.Resampling.LANCZOS)
-        return out
+        return out if scale == 4 else out.resize((image.width * scale, image.height * scale), Image.Resampling.LANCZOS)
     except Exception:
-        return _pillow_fallback(image, scale)
+        return _fallback(image, scale)
 
 
-def run_pipeline(image: Image.Image, pipeline, scale: int = 4, fidelity: float = 0.75) -> Image.Image:
+def _spandrel(image, scale):
+    try:
+        import torch
+        from spandrel import ImageModelDescriptor, ModelLoader
+        weights = os.getenv('SPANDREL_WEIGHTS')
+        if not weights or not os.path.exists(weights):
+            return _realesrgan(image, scale)
+        model = ModelLoader().load_from_file(weights)
+        if not isinstance(model, ImageModelDescriptor):
+            return _realesrgan(image, scale)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model = model.to(device).eval()
+        tensor = model.tensor_from_pil_image(image).to(device)
+        with torch.inference_mode():
+            output = model(tensor)
+        return model.image_from_tensor(output)
+    except Exception:
+        return _realesrgan(image, scale)
+
+
+def run_pipeline(image, pipeline, scale=4, fidelity=0.75):
     if pipeline.backend == 'realesrgan':
         result = _realesrgan(image, scale)
+    elif pipeline.backend == 'spandrel':
+        result = _spandrel(image, scale)
     else:
-        result = _pillow_fallback(image, scale)
-    # Fidelity blend prevents aggressive enhancement from drifting too far from source.
+        result = _fallback(image, scale)
     if 0 <= fidelity < 1:
         source = image.resize(result.size, Image.Resampling.LANCZOS)
         result = Image.blend(source, result, fidelity)
