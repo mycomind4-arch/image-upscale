@@ -1,15 +1,15 @@
 from pathlib import Path
 import io
 from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from PIL import Image
 from backend.analyzer import analyze_image
 from backend.router import choose_pipeline
 from backend.pipelines import run_pipeline
+from backend.model_registry import capabilities
 
-app = FastAPI(title='Image Upscale Lab', version='0.2.0')
+app = FastAPI(title='Image Upscale Lab', version='0.3.0')
 STATIC = Path(__file__).parent / 'static'
 app.mount('/static', StaticFiles(directory=STATIC), name='static')
 
@@ -20,6 +20,10 @@ def index():
 @app.get('/health')
 def health():
     return {'status': 'ok'}
+
+@app.get('/capabilities')
+def get_capabilities():
+    return capabilities()
 
 @app.post('/analyze')
 async def analyze(file: UploadFile = File(...)):
