@@ -20,6 +20,8 @@ MODELS = [
     ModelSpec('realesr-general-x4v3', 'Real-ESRGAN', 4, 'realesrgan', 'REALESRGAN_GENERAL_WEIGHTS'),
     ModelSpec('swinir', 'SwinIR', 4, 'spandrel', 'SWINIR_WEIGHTS'),
     ModelSpec('hat', 'HAT', 4, 'spandrel', 'HAT_WEIGHTS'),
+    ModelSpec('codeformer', 'CodeFormer', 1, 'codeformer', 'CODEFORMER_WEIGHTS'),
+    ModelSpec('diffbir', 'DiffBIR', 4, 'diffbir', 'DIFFBIR_WEIGHTS'),
 ]
 
 def model_status():

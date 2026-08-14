@@ -20,6 +20,13 @@ def choose_pipeline(analysis: dict, mode: str = 'auto') -> Pipeline:
         return FACE
     if mode not in {'auto', 'fidelity', 'restoration', 'face'}:
         return FALLBACK
+
+    # Auto mode: check for faces first
+    faces = analysis.get('faces', {})
+    face_count = faces.get('count', 0)
+    if face_count > 0:
+        return FACE
+
     if analysis.get('degradation') in {'soft_or_blurry', 'low_contrast'}:
         return RESTORE
     return GENERAL

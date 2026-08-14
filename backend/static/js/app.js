@@ -606,19 +606,21 @@ const App = {
         b.classList.add('active');
         State.outputFormat = b.dataset.fmt;
       }));
+      // Face fidelity slider
+      const ff = $('#faceFidelity'); if (ff) ff.addEventListener('input', e => {
+        $('#faceFidelityVal').textContent = parseFloat(e.target.value).toFixed(2);
+      });
     }, 0);
 
-    // Face restoration (if applicable)
+    // Face restoration (dynamic based on model + detection)
     const faceSection = el('div', { class: 'panel-section' });
     faceSection.id = 'faceSection';
-    faceSection.appendChild(el('div', { class: 'panel-title' }, 'Face Restoration'));
-    const facePanel = el('div', { class: 'face-panel' });
-    facePanel.innerHTML = `
-      <div class="face-info">
-        <span class="badge badge-neutral">Not Installed</span>
-        <span>Face restoration model (CodeFormer) is not available</span>
-      </div>
-    `;
+    faceSection.appendChild(el('div', { class: 'panel-title' },
+      el('span', {}, 'Face Restoration'),
+      el('span', { class: 'badge badge-info' }, 'CodeFormer')
+    ));
+    const facePanel = el('div', { class: 'face-panel', id: 'facePanel' });
+    this._renderFacePanel(facePanel);
     faceSection.appendChild(facePanel);
     panel.appendChild(faceSection);
 
@@ -681,6 +683,53 @@ const App = {
     }
   },
 
+
+  _renderFacePanel(panel) {
+    panel.innerHTML = '';
+    const caps = State.capabilities;
+    const codeformerModel = caps?.models?.find(m => m.backend === 'codeformer');
+    const analysis = State.originalAnalysis;
+    const faceInfo = analysis?.faces || { count: 0, source: null };
+
+    // Model status
+    if (codeformerModel?.installed) {
+      panel.appendChild(el('div', { class: 'face-info' },
+        el('span', { class: 'badge badge-success' }, 'Installed'),
+        el('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, 'CodeFormer ready')
+      ));
+    } else {
+      panel.appendChild(el('div', { class: 'face-info' },
+        el('span', { class: 'badge badge-neutral' }, 'Not Installed'),
+        el('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, 'Using fallback enhancement')
+      ));
+    }
+
+    // Face detection results
+    if (!analysis) {
+      panel.appendChild(el('div', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)', marginTop: 'var(--sp-2)' } }, 'Load an image to detect faces'));
+      return;
+    }
+
+    if (faceInfo.count > 0) {
+      panel.appendChild(el('div', { class: 'face-info', style: { marginTop: 'var(--sp-2)' } },
+        el('span', { class: 'badge badge-success' }, `${faceInfo.count} face${faceInfo.count > 1 ? 's' : ''} detected`),
+        el('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, `via ${faceInfo.source || 'detector'}`)
+      ));
+      // Fidelity slider for face restoration
+      panel.appendChild(el('div', { class: 'slider-row', style: { marginTop: 'var(--sp-3)' } },
+        el('span', { class: 'slider-label' }, 'Fidelity'),
+        el('input', { type: 'range', class: 'slider', id: 'faceFidelity', min: '0', max: '1', step: '0.05', value: '0.7' }),
+        el('span', { class: 'slider-value', id: 'faceFidelityVal' }, '0.70')
+      ));
+    } else {
+      const detector = faceInfo.source ? `via ${faceInfo.source}` : 'no detector available';
+      panel.appendChild(el('div', { class: 'face-info', style: { marginTop: 'var(--sp-2)' } },
+        el('span', { class: 'badge badge-neutral' }, 'No faces'),
+        el('span', { style: { fontSize: 'var(--font-size-sm)', color: 'var(--text-muted)' } }, detector)
+      ));
+    }
+  },
+
   // ===== Right Panel (Inspector) =====
   _buildRightPanel() {
     const panel = el('aside', { class: 'panel panel-right' });
@@ -716,7 +765,9 @@ const App = {
     // Quality panel (hidden unless we have scores)
     const qualitySection = el('div', { class: 'panel-section hidden', id: 'qualitySection' });
     qualitySection.appendChild(el('div', { class: 'panel-title' }, 'Quality Analysis'));
-    qualitySection.appendChild(el('div', { id: 'qualityContent', class: 'text-center', style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)', padding: 'var(--sp-4) 0' } }, 'Quality evaluation unavailable'));
+    const qualityContent = el('div', { id: 'qualityContent' });
+    qualitySection.appendChild(qualityContent);
+    this._renderQualityPanel(qualityContent);
     panel.appendChild(qualitySection);
 
     return panel;
@@ -791,11 +842,50 @@ const App = {
     ));
   },
 
+  _renderQualityPanel(container) {
+    container.innerHTML = '';
+    const q = State.enhancedMeta?.quality;
+    if (!q) {
+      container.appendChild(el('div', { style: { color: 'var(--text-muted)', fontSize: 'var(--font-size-sm)', textAlign: 'center', padding: 'var(--sp-4) 0' } }, 'Quality evaluation unavailable'));
+      return;
+    }
+    const rows = [
+      ['Overall', q.overall.toFixed(3), q.overall > 0.7 ? 'good' : 'warn'],
+      ['Fidelity', q.fidelity.toFixed(3)],
+      ['Sharpness Gain', q.sharpness_gain.toFixed(2) + 'x'],
+      ['Detail Gain', q.detail_gain.toFixed(2) + 'x'],
+      ['Artifact Score', q.artifact_score.toFixed(3), q.artifact_score < 0.3 ? 'good' : 'warn'],
+      ['Hallucination', q.hallucination.toFixed(2), q.hallucination_warning ? 'bad' : null],
+    ];
+    for (const [label, value, flag] of rows) {
+      const row = el('div', { class: 'result-stat' });
+      row.appendChild(el('span', { class: 'stat-label' }, label));
+      const valSpan = el('span', { class: 'stat-value' });
+      if (flag === 'good') valSpan.style.color = '#4ade80';
+      else if (flag === 'warn') valSpan.style.color = '#fbbf24';
+      else if (flag === 'bad') valSpan.style.color = '#f87171';
+      valSpan.textContent = value;
+      row.appendChild(valSpan);
+      container.appendChild(row);
+    }
+    if (q.hallucination_warning) {
+      container.appendChild(el('div', { style: { fontSize: 'var(--font-size-xs)', color: '#f87171', marginTop: 'var(--sp-2)', padding: 'var(--sp-2)', background: 'rgba(248,113,113,0.1)', borderRadius: 'var(--radius-sm)' } }, '⚠ Generative reconstruction detected in smooth regions'));
+    }
+  },
+
   _updateResultPanel() {
     if (!State.enhancedMeta) return;
     const section = $('#resultSection');
     if (!section) return;
     section.classList.remove('hidden');
+
+    // Show quality panel if scores available
+    const qSection = $('#qualitySection');
+    if (qSection && State.enhancedMeta?.quality) {
+      qSection.classList.remove('hidden');
+      const qc = $('#qualityContent');
+      if (qc) this._renderQualityPanel(qc);
+    }
 
     const card = $('#resultCard');
     const m = State.enhancedMeta;
@@ -857,10 +947,16 @@ const App = {
       if (sub) sub.textContent = `${State.scale}× upscale`;
       this._updateStatus('busy', 'Processing…', State.model === 'auto' ? 'Auto' : State.model);
 
+      // Check if face fidelity slider exists and override
+      const faceFidEl = $('#faceFidelity');
+      const faceFidelity = faceFidEl ? parseFloat(faceFidEl.value) : null;
+      const finalFidelity = faceFidelity !== null ? faceFidelity : apiFidelity;
+
       const result = await API.enhanceImage(State.originalFile, {
         mode: apiMode,
         scale: State.scale,
-        fidelity: apiFidelity,
+        fidelity: finalFidelity,
+        evaluate: true,
       });
 
       const elapsed = Date.now() - startTime;
@@ -875,6 +971,7 @@ const App = {
         originalDims: State.originalAnalysis ? `${State.originalAnalysis.width} × ${State.originalAnalysis.height}` : '—',
         dimensions: State.originalAnalysis ? `${State.originalAnalysis.width * State.scale} × ${State.originalAnalysis.height * State.scale}` : '—',
         mp: State.originalAnalysis ? formatMP(State.originalAnalysis.width * State.scale, State.originalAnalysis.height * State.scale) : '—',
+        quality: result.quality,
       };
 
       State.isProcessing = false;
