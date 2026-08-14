@@ -1,18 +1,20 @@
 import os
 import io
+import json
 from pathlib import Path
 from typing import Optional
 from fastapi import FastAPI, File, UploadFile, HTTPException, Query
-from fastapi.responses import Response, FileResponse
+from fastapi.responses import Response, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image, UnidentifiedImageError
 from backend.analyzer import analyze_image
 from backend.router import choose_pipeline
 from backend.pipelines import run_pipeline
+from backend.quality import score_candidate
 from backend.model_registry import capabilities
 
-app = FastAPI(title='Image Upscale Lab', version='0.4.0')
+app = FastAPI(title='Image Upscale Lab', version='0.5.0')
 STATIC = Path(__file__).parent / 'static'
 app.mount('/static', StaticFiles(directory=STATIC), name='static')
 
@@ -97,12 +99,17 @@ async def enhance(
     scale: int = Query(4, ge=2, le=8),
     fidelity: float = Query(0.75, ge=0.0, le=1.0),
     strip_metadata: bool = Query(True, ge=False),
+    evaluate: bool = Query(False, ge=False),
 ):
     data = await file.read()
     image = _validate_and_decode(data, file.content_type)
     analysis = analyze_image(image)
     pipeline = choose_pipeline(analysis, mode=mode)
     result = run_pipeline(image, pipeline, scale=scale, fidelity=fidelity)
+
+    quality_scores = None
+    if evaluate:
+        quality_scores = score_candidate(image, result)
 
     if strip_metadata:
         result = _strip_metadata(result)
@@ -111,18 +118,35 @@ async def enhance(
     result.save(output, format='PNG')
     output.seek(0)
 
+    headers = {
+        'X-Pipeline': pipeline.name,
+        'X-Analyzer': str(analysis['image_type']),
+        'X-Scale': str(scale),
+        'X-Fidelity': str(fidelity),
+        'X-Original-Size': f'{image.width}x{image.height}',
+        'X-Enhanced-Size': f'{result.width}x{result.height}',
+    }
+    if quality_scores:
+        headers['X-Quality-Scores'] = json.dumps(quality_scores)
+
     return Response(
         content=output.getvalue(),
         media_type='image/png',
-        headers={
-            'X-Pipeline': pipeline.name,
-            'X-Analyzer': str(analysis['image_type']),
-            'X-Scale': str(scale),
-            'X-Fidelity': str(fidelity),
-            'X-Original-Size': f'{image.width}x{image.height}',
-            'X-Enhanced-Size': f'{result.width}x{result.height}',
-        }
+        headers=headers,
     )
+
+
+@app.post('/quality')
+async def quality(
+    original: UploadFile = File(...),
+    enhanced: UploadFile = File(...),
+):
+    """Evaluate quality of an enhanced image against its source."""
+    orig_data = await original.read()
+    enh_data = await enhanced.read()
+    orig_img = _validate_and_decode(orig_data, original.content_type)
+    enh_img = _validate_and_decode(enh_data, enhanced.content_type)
+    return score_candidate(orig_img, enh_img)
 
 
 @app.get('/security')
