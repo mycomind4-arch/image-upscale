@@ -443,12 +443,17 @@ Object.assign(App, {
     auto.innerHTML = '<div class="model-info"><div class="model-name">Auto</div><div class="model-meta">AI Router selects best model</div></div>';
     c.appendChild(auto);
     for (const m of caps.models) {
-      const inst = m.installed;
-      const item = el('div', { class: `model-item ${!inst ? 'disabled' : ''} ${State.model === m.id ? 'selected' : ''}` });
-      if (inst) item.addEventListener('click', () => { State.model = m.id; this._renderModelList(c); });
-      let badge = inst ? '<span class="badge badge-success">Installed</span>' :
-        m.backend === 'diffbir' ? '<span class="badge badge-neutral">Coming Soon</span>' : '<span class="badge badge-neutral">Not Installed</span>';
-      item.innerHTML = `<div class="model-info"><div class="model-name">${m.family} ${m.scale}×</div><div class="model-meta">${m.id}</div></div>${badge}`;
+      const available = m.status === 'available';
+      const scales = (m.supported_scales || []).map(s => s + '×').join('/');
+      const item = el('div', { class: `model-item ${!available ? 'disabled' : ''} ${State.model === m.id ? 'selected' : ''}` });
+      if (available) item.addEventListener('click', () => { State.model = m.id; this._renderModelList(c); });
+      let badge;
+      if (m.status === 'available') badge = '<span class="badge badge-success">Ready</span>';
+      else if (m.status === 'unsupported') badge = '<span class="badge badge-neutral">Coming Soon</span>';
+      else if (m.notes) badge = '<span class="badge badge-neutral">Not Installed</span>';
+      else badge = '<span class="badge badge-neutral">Not Installed</span>';
+      const meta = m.name || m.id;
+      item.innerHTML = `<div class="model-info"><div class="model-name">${m.family} ${scales}</div><div class="model-meta">${meta}</div></div>${badge}`;
       c.appendChild(item);
     }
   },
@@ -459,8 +464,8 @@ Object.assign(App, {
     const cf = caps?.models?.find(m => m.backend === 'codeformer');
     const a = State.originalAnalysis;
     const fi = a?.faces || { count: 0, source: null };
-    if (cf?.installed) {
-      p.appendChild(el('div', { class: 'face-info' }, el('span', { class: 'badge badge-success' }, 'Installed'), el('span', { class: 'hint' }, 'CodeFormer ready')));
+    if (cf?.status === 'available') {
+      p.appendChild(el('div', { class: 'face-info' }, el('span', { class: 'badge badge-success' }, 'Ready'), el('span', { class: 'hint' }, 'CodeFormer ready')));
     } else {
       p.appendChild(el('div', { class: 'face-info' }, el('span', { class: 'badge badge-neutral' }, 'Not Installed'), el('span', { class: 'hint' }, 'Using fallback enhancement')));
     }
@@ -577,8 +582,14 @@ Object.assign(App, {
     sec.classList.remove('hidden');
     const card = $('#resultCard'); const m = State.enhancedMeta; card.innerHTML = '';
     for (const [label, value] of [
-      ['Original', m.originalDims], ['Enhanced', m.dimensions], ['Model', m.pipeline], ['Runtime', m.runtime], ['Scale', State.scale + '×'],
+      ['Original', m.originalDims], ['Enhanced', m.dimensions], ['Model', m.model || m.pipeline], ['Runtime', m.runtime],
+      ['Device', m.device || '—'], ['Scale', State.scale + '×'],
     ]) { card.appendChild(el('div', { class: 'result-stat' }, el('span', { class: 'stat-label' }, label), el('span', { class: 'stat-value' }, value))); }
+    if (m.usedFallback) {
+      const warn = el('div', { class: 'fallback-warning' });
+      warn.innerHTML = `<div class="fallback-icon">⚠</div><div><div class="fallback-title">Fallback Enhancement Used</div><div class="fallback-reason">${m.fallbackReason || 'Model unavailable'}</div></div>`;
+      card.appendChild(warn);
+    }
     const act = $('#resultActions'); act.innerHTML = '';
     act.appendChild(el('button', { class: 'btn btn-primary btn-sm', onclick: () => this._downloadResult() }, ICONS.download, 'Download'));
     act.appendChild(el('button', { class: 'btn btn-secondary btn-sm', onclick: () => this._navigate('compare') }, ICONS.compare, 'Compare'));
@@ -612,19 +623,27 @@ Object.assign(App, {
       if (State.enhancedUrl) URL.revokeObjectURL(State.enhancedUrl);
       State.enhancedUrl = result.url; State.enhancedBlob = result.blob;
       State.enhancedMeta = {
-        pipeline: result.pipeline, imageType: result.imageType, runtime: formatDuration(elapsed),
-        originalDims: State.originalAnalysis ? `${State.originalAnalysis.width} × ${State.originalAnalysis.height}` : '—',
-        dimensions: State.originalAnalysis ? `${State.originalAnalysis.width * State.scale} × ${State.originalAnalysis.height * State.scale}` : (result.enhancedSize || '—'),
+        pipeline: result.pipeline, model: result.model || result.pipeline, imageType: result.imageType,
+        runtime: result.runtime ? formatDuration(result.runtime * 1000) : formatDuration(elapsed),
+        device: result.device || '—',
+        usedFallback: result.usedFallback || false,
+        fallbackReason: result.fallbackReason || null,
+        originalDims: result.originalSize || (State.originalAnalysis ? `${State.originalAnalysis.width} × ${State.originalAnalysis.height}` : '—'),
+        dimensions: result.enhancedSize || (State.originalAnalysis ? `${State.originalAnalysis.width * State.scale} × ${State.originalAnalysis.height * State.scale}` : '—'),
         mp: State.originalAnalysis ? formatMP(State.originalAnalysis.width * State.scale, State.originalAnalysis.height * State.scale) : '—',
         quality: result.quality,
       };
       State.isProcessing = false;
       if (ov) ov.classList.add('hidden');
       if (btn) { btn.disabled = false; btn.innerHTML = `${ICONS.sparkles} Enhance Image`; }
-      this._updateStatus('complete', 'Complete', result.pipeline);
+      this._updateStatus('complete', 'Complete', result.model || result.pipeline);
       State.viewMode = 'single'; State.showOriginal = false;
       this._navigate('enhance');
-      this._showToast('Enhancement complete', 'success');
+      if (result.usedFallback) {
+        this._showToast(`Enhancement used fallback: ${result.fallbackReason || 'model unavailable'}`, 'warning');
+      } else {
+        this._showToast(`Enhanced with ${result.model || result.pipeline} in ${result.runtime ? result.runtime.toFixed(1) + 's' : formatDuration(elapsed)}`, 'success');
+      }
     } catch (err) {
       State.isProcessing = false;
       if (ov) ov.classList.add('hidden');
