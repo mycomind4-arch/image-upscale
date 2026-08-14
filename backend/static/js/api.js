@@ -2,7 +2,6 @@
  * Image Upscale Lab — Frontend API Layer
  * Clean abstraction over the FastAPI backend.
  */
-
 const API = {
   baseUrl: '',
 
@@ -18,6 +17,12 @@ const API = {
     return res.json();
   },
 
+  async getSecurity() {
+    const res = await fetch(`${this.baseUrl}/security`);
+    if (!res.ok) throw new Error('Failed to fetch security info');
+    return res.json();
+  },
+
   async analyzeImage(file) {
     const fd = new FormData();
     fd.append('file', file);
@@ -30,17 +35,20 @@ const API = {
   },
 
   async enhanceImage(file, params = {}) {
-    const { mode = 'auto', scale = 4, fidelity = 0.75, evaluate = false } = params;
+    const { mode = 'auto', scale = 4, fidelity = 0.75, stripMetadata = true, evaluate = false } = params;
     const fd = new FormData();
     fd.append('file', file);
     const qs = new URLSearchParams({
       mode, scale: String(scale), fidelity: String(fidelity),
+      strip_metadata: String(stripMetadata),
     });
     if (evaluate) qs.set('evaluate', 'true');
     const res = await fetch(`${this.baseUrl}/enhance?${qs}`, { method: 'POST', body: fd });
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(text || `Enhancement failed (${res.status})`);
+      let msg = text || `Enhancement failed (${res.status})`;
+      try { const j = JSON.parse(text); if (j.detail) msg = j.detail; } catch {}
+      throw new Error(msg);
     }
     const blob = await res.blob();
     const qualityRaw = res.headers.get('X-Quality-Scores');
@@ -49,6 +57,8 @@ const API = {
       url: URL.createObjectURL(blob),
       pipeline: res.headers.get('X-Pipeline') || 'unknown',
       imageType: res.headers.get('X-Analyzer') || 'photo',
+      scale: parseInt(res.headers.get('X-Scale') || scale),
+      fidelity: parseFloat(res.headers.get('X-Fidelity') || fidelity),
       originalSize: res.headers.get('X-Original-Size') || '',
       enhancedSize: res.headers.get('X-Enhanced-Size') || '',
       quality: qualityRaw ? JSON.parse(qualityRaw) : null,
@@ -68,7 +78,6 @@ const API = {
   },
 };
 
-// Export for ES modules
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = API;
 }
