@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: image-upscale-lab-backend
+    env: docker
+    region: oregon
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: MODELS_DIR
+        value: /app/models
+      - key: PYTHONPATH
+        value: /app

@@ -422,7 +422,7 @@ Object.assign(App, {
     this._renderFacePanel(fp); faceSec.appendChild(fp); panel.appendChild(faceSec);
     // ENHANCE BUTTON
     const actSec = el('div', { class: 'panel-section', style: { borderBottom: 'none' } });
-    const btn = el('button', { class: 'btn btn-primary btn-lg btn-block', id: 'enhanceBtn', onclick: () => this._runEnhancement() }, ICONS.sparkles, 'Enhance Image');
+    const btn = el('button', { class: 'btn btn-primary btn-lg btn-block', id: 'enhanceBtn', onclick: () => this._runEnhancement(), html: `${ICONS.sparkles} Enhance Image` });
     actSec.appendChild(btn); panel.appendChild(actSec);
     return panel;
   },
@@ -591,10 +591,10 @@ Object.assign(App, {
       card.appendChild(warn);
     }
     const act = $('#resultActions'); act.innerHTML = '';
-    act.appendChild(el('button', { class: 'btn btn-primary btn-sm', onclick: () => this._downloadResult() }, ICONS.download, 'Download'));
-    act.appendChild(el('button', { class: 'btn btn-secondary btn-sm', onclick: () => this._navigate('compare') }, ICONS.compare, 'Compare'));
-    act.appendChild(el('button', { class: 'btn btn-secondary btn-sm', onclick: () => this._runEnhancement() }, ICONS.refresh, 'Again'));
-    act.appendChild(el('button', { class: 'btn btn-ghost btn-sm', onclick: () => this._saveToHistory() }, ICONS.save, 'Save'));
+    act.appendChild(el('button', { class: 'btn btn-primary btn-sm', onclick: () => this._downloadResult(), html: `${ICONS.download} Download` }));
+    act.appendChild(el('button', { class: 'btn btn-secondary btn-sm', onclick: () => this._navigate('compare'), html: `${ICONS.compare} Compare` }));
+    act.appendChild(el('button', { class: 'btn btn-secondary btn-sm', onclick: () => this._runEnhancement(), html: `${ICONS.refresh} Again` }));
+    act.appendChild(el('button', { class: 'btn btn-ghost btn-sm', onclick: () => this._saveToHistory(), html: `${ICONS.save} Save` }));
     const qs = $('#qualitySection');
     if (qs) { qs.classList.remove('hidden'); this._renderQualityPanel($('#qualityContent')); }
   },
